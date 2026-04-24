@@ -5,3 +5,4 @@ matplotlib>=3.8.0
 cryptography>=42.0.0
 flask>=3.0.0
 gunicorn>=21.0.0
+openai
