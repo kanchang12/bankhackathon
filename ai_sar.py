@@ -1,120 +1,101 @@
 """
-Layer 5 — Multimodal AI (Gemini)
-Uses the new google-genai SDK (v1.x) with Gemini 2.0 Flash.
+Layer 5 - Multimodal AI (OpenAI)
+Uses gpt-4o which has vision built in.
+Sends graph image + cluster stats -> structured SAR report.
 
-Sends the rendered graph IMAGE to Gemini vision.
-Gemini reads the visual network structure + cluster stats -> writes SAR.
-
-Multimodal modality satisfied:
-  image (graph PNG) + text (cluster stats) -> structured SAR report
-
-Model: gemini-2.0-flash
-Pricing: $0.075/M input tokens . $0.30/M output tokens
-Cost per SAR: ~$0.001 (~EUR 0.001)
+Model: gpt-4o
+Pricing: $2.50/M input, $10/M output
+Cost per SAR: ~$0.003
 """
 
 import os
 import json
 import time
+import base64
 from datetime import datetime, timezone
+from openai import OpenAI
 
-from google import genai
-from google.genai import types
-
-
-MODEL = "gemini-2.0-flash"
-
-INPUT_PRICE_PER_M  = 0.075
-OUTPUT_PRICE_PER_M = 0.30
+MODEL = "gpt-4o"
+INPUT_PRICE_PER_M  = 2.50
+OUTPUT_PRICE_PER_M = 10.00
 USD_TO_EUR         = 0.92
 
 
 def _make_client(api_key=None):
-    key = api_key or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
-        raise ValueError(
-            "No Gemini API key found. "
-            "Set GOOGLE_API_KEY or GEMINI_API_KEY environment variable."
-        )
-    return genai.Client(api_key=key)
+        raise ValueError("OPENAI_API_KEY not set.")
+    return OpenAI(api_key=key)
 
 
 def generate_sar(cluster, graph_image_bytes, client=None):
-    """
-    Send graph PNG image + cluster stats to Gemini 2.0 Flash.
-    Returns structured SAR dict with cost metadata.
-    """
     if client is None:
         client = _make_client()
 
     cluster_dict = cluster.to_dict()
+    img_b64 = base64.standard_b64encode(graph_image_bytes).decode()
 
-    system_instruction = (
+    system_prompt = (
         "You are a financial crime compliance analyst specialising in AML. "
         "You receive a transaction network graph image and structured cluster data. "
-        "You write Suspicious Activity Reports (SARs). "
         "Respond ONLY with valid JSON - no markdown, no code fences, no extra text."
     )
 
-    prompt_text = f"""Analyse this transaction network graph image and the cluster data below.
-The image shows accounts as nodes and money transfers as directed edges.
-Red nodes are flagged as smurf targets. Edge labels show EUR amounts.
+    user_content = [
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{img_b64}",
+                "detail": "high"
+            }
+        },
+        {
+            "type": "text",
+            "text": f"""Analyse this transaction network graph and cluster data.
+Red nodes are flagged smurf targets. Edge labels show EUR amounts.
 
 CLUSTER DATA:
 {json.dumps(cluster_dict, indent=2)}
 
-Rules that fired: {', '.join(cluster_dict['rules_fired'])}
-Total incoming value: EUR {cluster_dict['total_eur']}
+Rules fired: {', '.join(cluster_dict['rules_fired'])}
+Total value: EUR {cluster_dict['total_eur']}
 Distinct senders: {cluster_dict['num_senders']}
-Rule-based risk score: {cluster_dict['score']}/100
+Risk score: {cluster_dict['score']}/100
 
-Write a SAR as a JSON object with these exact fields:
-- reference: string, format SAR-YYYY-XXXX
+Return a SAR JSON with these exact fields:
+- reference: string SAR-YYYY-XXXX
 - risk_score: integer 0-100
-- pattern_type: one of SMURFING | LAYERING | STRUCTURING | UNKNOWN
-- summary: string, 2-3 sentences describing what the graph visually shows
-- indicators: array of strings, specific red flags observed
-- recommended_action: one of FREEZE | ESCALATE | MONITOR | DISMISS
-- visual_observation: one sentence describing the network shape in the image
-- confidence: one of HIGH | MEDIUM | LOW"""
-
-    contents = [
-        types.Part.from_bytes(data=graph_image_bytes, mime_type="image/png"),
-        types.Part.from_text(text=prompt_text),
+- pattern_type: SMURFING | LAYERING | STRUCTURING | UNKNOWN
+- summary: 2-3 sentences describing what the graph shows
+- indicators: array of specific red flags observed
+- recommended_action: FREEZE | ESCALATE | MONITOR | DISMISS
+- visual_observation: one sentence on the network shape you see
+- confidence: HIGH | MEDIUM | LOW"""
+        }
     ]
 
-    config = types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        temperature=0.1,
-        max_output_tokens=1024,
-        response_mime_type="application/json",
-    )
-
     t0 = time.time()
-    response = client.models.generate_content(
+    response = client.chat.completions.create(
         model=MODEL,
-        contents=contents,
-        config=config,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_content}
+        ],
+        max_tokens=1000,
+        temperature=0.1,
+        response_format={"type": "json_object"}
     )
     elapsed = time.time() - t0
 
-    raw = response.text.strip() if response.text else "{}"
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1] if len(parts) > 1 else raw
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-
+    raw = response.choices[0].message.content.strip()
     try:
         sar = json.loads(raw)
     except json.JSONDecodeError:
         sar = {"raw_response": raw, "parse_error": True}
 
-    usage = response.usage_metadata
-    input_tokens  = getattr(usage, "prompt_token_count", 0) or 0
-    output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-    cost_usd = (input_tokens  * INPUT_PRICE_PER_M  / 1_000_000 +
-                output_tokens * OUTPUT_PRICE_PER_M / 1_000_000)
+    input_tokens  = response.usage.prompt_tokens
+    output_tokens = response.usage.completion_tokens
+    cost_usd = (input_tokens * INPUT_PRICE_PER_M + output_tokens * OUTPUT_PRICE_PER_M) / 1_000_000
     cost_eur = cost_usd * USD_TO_EUR
 
     sar["_meta"] = {
@@ -127,7 +108,6 @@ Write a SAR as a JSON object with these exact fields:
         "latency_seconds": round(elapsed, 2),
         "cluster_target":  cluster.target_node,
     }
-
     return sar
 
 
