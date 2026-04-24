@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmurfDetect — AML Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #080b0f;
+  --surface:   #0d1117;
+  --surface2:  #131920;
+  --border:    #1e2a35;
+  --border2:   #253140;
+  --text:      #c9d4dc;
+  --muted:     #5a7080;
+  --accent:    #00d4aa;
+  --accent2:   #0099ff;
+  --danger:    #ff4444;
+  --warn:      #ffaa00;
+  --success:   #00cc88;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Grid noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── Header ── */
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.logo {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.8); }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.status-pill.running { border-color: var(--warn); color: var(--warn); }
+.status-pill.done    { border-color: var(--success); color: var(--success); }
+.status-pill.error   { border-color: var(--danger); color: var(--danger); }
+
+/* ── Main layout ── */
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Hero ── */
+.hero {
+  text-align: center;
+  padding: 3rem 1rem 2.5rem;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 300;
+  letter-spacing: -2px;
+  color: #fff;
+  line-height: 1.1;
+  margin-bottom: 0.75rem;
+}
+
+.hero h1 span { color: var(--accent); }
+
+.hero p {
+  color: var(--muted);
+  font-size: 15px;
+  max-width: 520px;
+  margin: 0 auto 2rem;
+}
+
+.scan-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  padding: 14px 36px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.scan-btn:hover  { background: #00eebb; transform: translateY(-1px); }
+.scan-btn:active { transform: translateY(0); }
+.scan-btn:disabled {
+  background: var(--border2);
+  color: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.scan-btn.running::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: -100%;
+  width: 100%; height: 2px;
+  background: rgba(0,0,0,0.3);
+  animation: scanline 1.5s linear infinite;
+}
+
+@keyframes scanline { to { left: 100%; } }
+
+/* ── Metrics row ── */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.metric {
+  background: var(--surface);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1;
+}
+
+.metric-value.accent  { color: var(--accent); }
+.metric-value.danger  { color: var(--danger); }
+.metric-value.warn    { color: var(--warn); }
+
+/* ── Two column layout ── */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+/* ── Panel ── */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+
+.panel-body { padding: 1.25rem; }
+
+/* ── Graph panel ── */
+.graph-wrap {
+  background: #0a0d10;
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.graph-wrap img {
+  width: 100%;
+  display: block;
+  border-radius: 4px;
+}
+
+.graph-placeholder {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+  padding: 3rem;
+}
+
+/* ── Cluster cards ── */
+.cluster-list { display: flex; flex-direction: column; gap: 10px; }
+
+.cluster-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--danger);
+  transition: border-color 0.2s;
+}
+
+.cluster-card.medium { border-left-color: var(--warn); }
+.cluster-card.low    { border-left-color: var(--success); }
+
+.cluster-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cluster-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent2);
+}
+
+.risk-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 3px;
+  background: rgba(255,68,68,0.15);
+  color: var(--danger);
+  border: 1px solid rgba(255,68,68,0.3);
+}
+
+.risk-badge.medium {
+  background: rgba(255,170,0,0.12);
+  color: var(--warn);
+  border-color: rgba(255,170,0,0.3);
+}
+
+.risk-badge.low {
+  background: rgba(0,204,136,0.1);
+  color: var(--success);
+  border-color: rgba(0,204,136,0.25);
+}
+
+.cluster-stats {
+  display: flex;
+  gap: 1.5rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cluster-stats span b { color: var(--text); font-weight: 500; }
+
+.rules-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.rule-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(0,212,170,0.08);
+  border: 1px solid rgba(0,212,170,0.2);
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+/* ── SAR section ── */
+.sar-list { display: flex; flex-direction: column; gap: 1.5rem; margin-bottom: 2rem; }
+
+.sar-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sar-head {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sar-ref {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.sar-badges { display: flex; gap: 8px; align-items: center; }
+
+.pattern-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  background: rgba(0,153,255,0.1);
+  color: var(--accent2);
+  border: 1px solid rgba(0,153,255,0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.action-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.action-badge.FREEZE, .action-badge.ESCALATE {
+  background: rgba(255,68,68,0.12);
+  color: var(--danger);
+  border: 1px solid rgba(255,68,68,0.3);
+}
+
+.action-badge.MONITOR {
+  background: rgba(255,170,0,0.1);
+  color: var(--warn);
+  border: 1px solid rgba(255,170,0,0.25);
+}
+
+.action-badge.DISMISS {
+  background: rgba(90,112,128,0.15);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.sar-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+
+.sar-field label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.sar-field p { font-size: 13px; color: var(--text); line-height: 1.6; }
+
+.sar-indicators { display: flex; flex-direction: column; gap: 4px; }
+
+.sar-indicator {
+  font-size: 12px;
+  color: var(--text);
+  padding: 5px 0 5px 14px;
+  border-left: 2px solid var(--danger);
+  padding-left: 12px;
+}
+
+.sar-meta {
+  display: flex;
+  gap: 2rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.sar-meta-item {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sar-meta-item span { color: var(--accent); }
+
+/* ── Cost footer ── */
+.cost-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.cost-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cost-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.cost-val {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ── Empty state ── */
+.empty {
+  text-align: center;
+  padding: 2.5rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ── Loading spinner ── */
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Error box ── */
+.error-box {
+  background: rgba(255,68,68,0.07);
+  border: 1px solid rgba(255,68,68,0.25);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--danger);
+  white-space: pre-wrap;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Tagline ── */
+.tagline {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 1.5rem 0 2rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.tagline a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    SmurfDetect
+  </div>
+  <div class="header-right">
+    <div class="status-pill" id="headerStatus">idle</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Hero -->
+  <section class="hero">
+    <h1>Detect <span>smurfing</span><br>before regulators do</h1>
+    <p>Graph ML + Gemini multimodal vision detects structured money laundering in bunq transaction networks. GDPR-safe by design.</p>
+    <button class="scan-btn" id="scanBtn" onclick="runScan()">Run Detection</button>
+  </section>
+
+  <!-- Metrics -->
+  <div class="metrics" id="metricsRow">
+    <div class="metric">
+      <div class="metric-label">Transactions</div>
+      <div class="metric-value" id="mTxns">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Clusters flagged</div>
+      <div class="metric-value danger" id="mClusters">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">SARs generated</div>
+      <div class="metric-value accent" id="mSars">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">AI cost (this run)</div>
+      <div class="metric-value" id="mCost">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Total scans</div>
+      <div class="metric-value" id="mRuns">—</div>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox" style="display:none"></div>
+
+  <!-- Graph + Clusters -->
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Transaction network</div>
+        <div id="graphSpinner" style="display:none"><div class="spinner"></div></div>
+      </div>
+      <div class="panel-body">
+        <div class="graph-wrap" id="graphWrap">
+          <div class="graph-placeholder">Graph renders after detection run</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Detected clusters</div>
+      </div>
+      <div class="panel-body">
+        <div class="cluster-list" id="clusterList">
+          <div class="empty">No clusters yet — run a scan</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SAR reports -->
+  <div class="panel-header" style="background:var(--surface);border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;margin-bottom:0">
+    <div class="panel-title">Suspicious activity reports</div>
+  </div>
+  <div class="sar-list" id="sarList" style="border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;padding:1.25rem;background:var(--surface);margin-bottom:2rem">
+    <div class="empty">SARs appear here after detection</div>
+  </div>
+
+  <!-- Cost summary -->
+  <div class="cost-bar" id="costBar" style="display:none">
+    <div class="cost-item">
+      <div class="cost-label">AI cost this run</div>
+      <div class="cost-val" id="costRun">€0.000000</div>
+    </div>
+    <div class="cost-item">
+      <div class="cost-label">Est. daily (500 flags)</div>
+      <div class="cost-val" id="costDaily">—</div>
+    </div>
+    <div class="cost-item">
+      <div class="cost-label">Est. annual</div>
+      <div class="cost-val" id="costAnnual">—</div>
+    </div>
+    <div class="cost-item">
+      <div class="cost-label">vs bunq AML fine</div>
+      <div class="cost-val" style="color:var(--danger)">€2,600,000</div>
+    </div>
+    <div class="cost-item">
+      <div class="cost-label">ROI</div>
+      <div class="cost-val" id="costRoi" style="color:var(--success)">—</div>
+    </div>
+  </div>
+
+  <div class="tagline">
+    Built for bunq Hackathon 7.0 · Privacy-first architecture based on
+    <a href="https://doi.org/10.5281/zenodo.17440767" target="_blank">Ghosh 2025</a> ·
+    Powered by Gemini 2.0 Flash
+  </div>
+
+</main>
+
+<script>
+let polling = null;
+
+function runScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.textContent = 'Scanning...';
+  btn.classList.add('running');
+  document.getElementById('errorBox').style.display = 'none';
+
+  fetch('/api/scan', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => { polling = setInterval(pollState, 1200); })
+    .catch(e => showError(e.toString()));
+}
+
+function pollState() {
+  fetch('/api/state')
+    .then(r => r.json())
+    .then(data => {
+      renderState(data);
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(polling);
+        const btn = document.getElementById('scanBtn');
+        btn.disabled = false;
+        btn.textContent = 'Run Detection';
+        btn.classList.remove('running');
+      }
+    });
+}
+
+function renderState(s) {
+  // Header status pill
+  const pill = document.getElementById('headerStatus');
+  pill.textContent = s.status;
+  pill.className = 'status-pill ' + s.status;
+
+  // Metrics
+  document.getElementById('mTxns').textContent     = s.transactions || '—';
+  document.getElementById('mClusters').textContent = s.clusters?.length ?? '—';
+  document.getElementById('mSars').textContent     = s.sars?.length ?? '—';
+  document.getElementById('mCost').textContent     = s.total_cost != null ? '€' + s.total_cost.toFixed(6) : '—';
+  document.getElementById('mRuns').textContent     = s.run_count || '—';
+
+  // Graph
+  if (s.graph_b64) {
+    document.getElementById('graphWrap').innerHTML =
+      `<img src="data:image/png;base64,${s.graph_b64}" alt="Transaction network graph">`;
+  } else if (s.status === 'running') {
+    document.getElementById('graphWrap').innerHTML =
+      `<div class="graph-placeholder"><div class="spinner" style="margin:0 auto 12px"></div><br>Building graph...</div>`;
+  }
+
+  // Clusters
+  const cl = document.getElementById('clusterList');
+  if (s.clusters?.length) {
+    cl.innerHTML = s.clusters.map(c => {
+      const level = c.score >= 75 ? 'high' : c.score >= 50 ? 'medium' : 'low';
+      return `
+      <div class="cluster-card ${level}">
+        <div class="cluster-top">
+          <div class="cluster-id">${c.target.substring(0, 16)}…</div>
+          <div class="risk-badge ${level}">Risk ${c.score}/100</div>
+        </div>
+        <div class="cluster-stats">
+          <span><b>${c.num_senders}</b> senders</span>
+          <span><b>€${c.total_eur}</b> total</span>
+        </div>
+        <div class="rules-list">
+          ${c.rules_fired.map(r => `<span class="rule-tag">${r}</span>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  } else if (s.status === 'done') {
+    cl.innerHTML = '<div class="empty">No suspicious clusters detected</div>';
+  }
+
+  // SARs
+  const sl = document.getElementById('sarList');
+  if (s.sars?.length) {
+    sl.innerHTML = s.sars.map(sar => {
+      if (sar.error) return `<div class="error-box">${sar.error}</div>`;
+      const meta = sar._meta || {};
+      const action = sar.recommended_action || 'UNKNOWN';
+      return `
+      <div class="sar-card">
+        <div class="sar-head">
+          <div class="sar-ref">${sar.reference || 'SAR'}</div>
+          <div class="sar-badges">
+            <span class="pattern-badge">${sar.pattern_type || '—'}</span>
+            <span class="action-badge ${action}">${action}</span>
+            <span class="risk-badge ${sar.risk_score >= 75 ? 'high' : sar.risk_score >= 50 ? 'medium' : 'low'}">
+              Score ${sar.risk_score}/100
+            </span>
+          </div>
+        </div>
+        <div class="sar-body">
+          <div class="sar-field">
+            <label>Summary</label>
+            <p>${sar.summary || '—'}</p>
+          </div>
+          <div class="sar-field">
+            <label>Visual observation</label>
+            <p>${sar.visual_observation || '—'}</p>
+          </div>
+          <div class="sar-field">
+            <label>Indicators</label>
+            <div class="sar-indicators">
+              ${(sar.indicators || []).map(i => `<div class="sar-indicator">${i}</div>`).join('')}
+            </div>
+          </div>
+          <div class="sar-meta">
+            <div class="sar-meta-item">Model: <span>${meta.model || '—'}</span></div>
+            <div class="sar-meta-item">Confidence: <span>${sar.confidence || '—'}</span></div>
+            <div class="sar-meta-item">Cost: <span>€${(meta.cost_eur || 0).toFixed(6)}</span></div>
+            <div class="sar-meta-item">Tokens: <span>${meta.input_tokens || 0} in / ${meta.output_tokens || 0} out</span></div>
+            ${meta.latency_seconds ? `<div class="sar-meta-item">Latency: <span>${meta.latency_seconds}s</span></div>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Cost bar
+  if (s.status === 'done' && s.sars?.length) {
+    document.getElementById('costBar').style.display = 'flex';
+    const perSar  = s.sars.length ? s.total_cost / s.sars.length : 0;
+    const daily   = perSar * 500;
+    const annual  = daily * 365;
+    const roi     = annual > 0 ? Math.round(2600000 / annual) : '∞';
+    document.getElementById('costRun').textContent    = '€' + s.total_cost.toFixed(6);
+    document.getElementById('costDaily').textContent  = '€' + daily.toFixed(4);
+    document.getElementById('costAnnual').textContent = '€' + annual.toFixed(2);
+    document.getElementById('costRoi').textContent    = roi + 'x';
+  }
+
+  // Error
+  if (s.error) showError(s.error);
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+// Poll on load to restore state
+pollState();
+</script>
+</body>
+</html>
